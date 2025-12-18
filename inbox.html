@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<title>Mobile Deposit/Withdraw System</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+<style>
+body{font-family:Arial;background:#0f172a;color:#fff;margin:0;padding:10px}
+.notice{background:#1e293b;overflow:hidden;white-space:nowrap;margin-bottom:10px}
+.notice span{display:inline-block;padding:10px 0;animation:scroll 20s linear infinite}
+@keyframes scroll{0%{transform:translateX(100%)}100%{transform:translateX(-100%)}}
+.box{max-width:500px;margin:10px auto;background:#020617;padding:20px;border-radius:12px;box-shadow:0 0 15px #000}
+h2{text-align:center;color:#38bdf8}
+input,select,button{width:100%;padding:10px;margin:8px 0;border-radius:8px;border:none}
+button{background:#38bdf8;color:#000;font-weight:bold;cursor:pointer}
+button:hover{background:#0ea5e9}
+.hidden{display:none}
+.info{background:#020617;border:1px solid #334155;padding:10px;border-radius:8px;font-size:14px;margin-top:10px;overflow:auto;max-height:300px;}
+img.screenshot{max-width:100px;margin:5px 0;border:1px solid #334155;border-radius:5px;}
+</style>
+</head>
+<body>
+
+<div class="notice"><span>📢 আমাদের সেবায় ২৪ ঘন্টা অ্যাপলাইন খোলা আছে। কোন সমস্যা হলে 01409703077। ডিপোজিট/উইথড্র দুই মিনিটের ভিতরে সম্পন্ন হয়।</span></div>
+
+<div class="box" id="loginBox">
+<h2>Login / SignUp</h2>
+<input id="email" placeholder="Email" type="email">
+<input id="password" placeholder="Password" type="password">
+<button onclick="loginUser()">Login</button>
+<button onclick="signupUser()">Sign Up</button>
+<div id="loginInfo" class="info hidden"></div>
+</div>
+
+<div class="box hidden" id="dashboard">
+<h2>User Dashboard</h2>
+<p>Welcome, <span id="userEmail"></span></p>
+<button onclick="showDeposit()">Deposit</button>
+<button onclick="showWithdraw()">Withdraw</button>
+<button onclick="logoutUser()">Logout</button>
+
+<div id="depositSection" class="hidden">
+<h3>Deposit</h3>
+<input id="depositAmount" placeholder="Amount">
+<input id="depositTxn" placeholder="Transaction ID">
+<input type="file" id="depositScreenshot" accept="image/*">
+<button onclick="submitDeposit()">Submit Deposit</button>
+<div id="depositInfo" class="info hidden"></div>
+</div>
+
+<div id="withdrawSection" class="hidden">
+<h3>Withdraw</h3>
+<input id="withdrawAmount" placeholder="Amount">
+<input id="withdrawCode" placeholder="Withdraw Code">
+<input id="withdrawNumber" placeholder="User Number">
+<select id="withdrawMethod">
+<option value="">-- Payment Method --</option>
+<option value="bkash">bKash</option>
+<option value="nagad">Nagad</option>
+</select>
+<button onclick="submitWithdraw()">Submit Withdraw</button>
+<div id="withdrawInfo" class="info hidden"></div>
+</div>
+</div>
+
+<div class="box hidden" id="adminPanel">
+<h2>Admin Panel</h2>
+<p>Welcome Admin</p>
+<button onclick="logoutUser()">Logout</button>
+<h3>All Deposits</h3>
+<div id="allDeposits" class="info"></div>
+<h3>All Withdraws</h3>
+<div id="allWithdraws" class="info"></div>
+</div>
+
+<script>
+// ===== Firebase Config =====
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const storage = firebase.storage();
+
+// ===== Login / Signup =====
+function loginUser(){
+  const email = document.getElementById('email').value;
+  const pass = document.getElementById('password').value;
+  auth.signInWithEmailAndPassword(email, pass)
+  .then(userCredential=>{checkUserRole(userCredential.user);})
+  .catch(err=>alert(err.message));
+}
+
+function signupUser(){
+  const email = document.getElementById('email').value;
+  const pass = document.getElementById('password').value;
+  auth.createUserWithEmailAndPassword(email, pass)
+  .then(userCredential=>{
+    db.collection('users').doc(userCredential.user.uid).set({role:'user', email:email});
+    alert('Signup successful! Login now.');
+  })
+  .catch(err=>alert(err.message));
+}
+
+function logoutUser(){
+  auth.signOut();
+  dashboard.classList.add('hidden');
+  adminPanel.classList.add('hidden');
+  loginBox.classList.remove('hidden');
+}
+
+// ===== Role check =====
+function checkUserRole(user){
+  db.collection('users').doc(user.uid).get().then(doc=>{
+    if(doc.exists){
+      const data = doc.data();
+      loginBox.classList.add('hidden');
+      if(data.role === 'admin'){
+        adminPanel.classList.remove('hidden');
+        loadAdminData();
+      }else{
+        dashboard.classList.remove('hidden');
+        userEmail.textContent = data.email;
+      }
+    }else alert('No role assigned!');
+  });
+}
+
+// ===== Dashboard Sections =====
+function showDeposit(){depositSection.classList.remove('hidden'); withdrawSection.classList.add('hidden');}
+function showWithdraw(){depositSection.classList.add('hidden'); withdrawSection.classList.remove('hidden');}
+
+// ===== Deposit =====
+function submitDeposit(){
+  const amount = depositAmount.value;
+  const txnId = depositTxn.value;
+  const file = depositScreenshot.files[0];
+  if(!amount||!txnId||!file) return alert('সব ফিল্ড পূরণ করুন এবং স্ক্রিনশট আপলোড করুন');
+  
+  const storageRef = storage.ref('depositScreenshots/'+file.name);
+  storageRef.put(file).then(snapshot=>{
+    snapshot.ref.getDownloadURL().then(url=>{
+      db.collection('deposits').add({
+        userId: auth.currentUser.uid,
+        amount: amount,
+        txnId: txnId,
+        screenshot: url,
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      depositInfo.classList.remove('hidden');
+      depositInfo.innerHTML=`Deposit submitted successfully! <br><img class="screenshot" src="${url}">`;
+      depositAmount.value=''; depositTxn.value=''; depositScreenshot.value='';
+    });
+  });
+}
+
+// ===== Withdraw =====
+function submitWithdraw(){
+  const amount = withdrawAmount.value;
+  const code = withdrawCode.value;
+  const number = withdrawNumber.value;
+  const method = withdrawMethod.value;
+  if(!amount||!code||!number||!method) return alert('সব ফিল্ড পূরণ করুন');
+  
+  db.collection('withdraws').add({
+    userId: auth.currentUser.uid,
+    amount: amount,
+    withdrawCode: code,
+    number: number,
+    method: method,
+    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  
+  withdrawInfo.classList.remove('hidden');
+  withdrawInfo.innerHTML='Withdraw request submitted successfully!';
+  withdrawAmount.value=''; withdrawCode.value=''; withdrawNumber.value=''; withdrawMethod.value='';
+}
+
+// ===== Admin Panel =====
+function loadAdminData(){
+  db.collection('deposits').orderBy('timestamp','desc').onSnapshot(snapshot=>{
+    allDeposits.innerHTML='';
+    snapshot.forEach(doc=>{
+      const d = doc.data();
+      allDeposits.innerHTML += `<b>User:</b> ${d.userId} | <b>Amount:</b> ${d.amount} | <b>Txn:</b> ${d.txnId}<br><img class="screenshot" src="${d.screenshot}"><hr>`;
+    });
+  });
+  
+  db.collection('withdraws').orderBy('timestamp','desc').onSnapshot(snapshot=>{
+    allWithdraws.innerHTML='';
+    snapshot.forEach(doc=>{
+      const d = doc.data();
+      allWithdraws.innerHTML += `<b>User:</b> ${d.userId} | <b>Amount:</b> ${d.amount} | <b>Code:</b> ${d.withdrawCode} | <b>Number:</b> ${d.number} | <b>Method:</b> ${d.method}<hr>`;
+    });
+  });
+}
+</script>
+</body>
+</html>
